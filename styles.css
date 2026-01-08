@@ -329,8 +329,19 @@ section {
 }
 
 .feature-icon {
-    font-size: 3rem;
-    margin-bottom: 1rem;
+    margin-bottom: 1.5rem;
+    color: var(--primary-color);
+}
+
+.feature-icon svg {
+    width: 60px;
+    height: 60px;
+    transition: var(--transition);
+}
+
+.feature:hover .feature-icon svg {
+    transform: scale(1.1);
+    color: var(--accent-gold);
 }
 
 .feature h3 {
@@ -378,6 +389,7 @@ section {
     background-size: cover;
     background-position: center;
     position: relative;
+    overflow: hidden;
 }
 
 /* Package Image Backgrounds (using gradient placeholders) */
@@ -413,15 +425,20 @@ section {
 }
 
 .package-badge {
-    display: inline-block;
-    background: var(--accent-gold);
-    color: var(--white);
-    padding: 0.4rem 1rem;
-    border-radius: 20px;
-    font-size: 0.8rem;
+    position: absolute;
+    bottom: 15px;
+    right: 15px;
+    background: rgba(255, 255, 255, 0.95);
+    color: var(--primary-color);
+    padding: 0.5rem 1.2rem;
+    border-radius: 25px;
+    font-size: 0.75rem;
     font-weight: 600;
-    margin-bottom: 1rem;
-    align-self: flex-start;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+    backdrop-filter: blur(10px);
+    border: 2px solid var(--accent-gold);
 }
 
 .package-content h3 {
