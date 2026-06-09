@@ -237,7 +237,7 @@ async function runAll() {
     prog.textContent = `Researching ${school} (${i + 1} / ${total})...`;
     await researchOne(school);
     if (i < pending.length - 1 && !stopRequested) {
-      await new Promise(r => setTimeout(r, 1000));
+      await new Promise(r => setTimeout(r, 10000));
     }
   }
 
