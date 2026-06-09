@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SHIP IVF Coverage Research</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f8fafc; color: #1e293b; }
+  header { background: #1e293b; color: white; padding: 16px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  header h1 { font-size: 1.2rem; font-weight: 700; }
+  .controls { display: flex; gap: 8px; flex-wrap: wrap; padding: 16px 24px; background: white; border-bottom: 1px solid #e2e8f0; align-items: center; }
+  .controls input[type=text] { border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 12px; font-size: 14px; width: 180px; }
+  .controls select { border: 1px solid #cbd5e1; border-radius: 6px; padding: 7px 10px; font-size: 14px; background: white; }
+  button { border: none; border-radius: 6px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity .15s; }
+  button:disabled { opacity: .45; cursor: default; }
+  .btn-primary { background: #3b82f6; color: white; }
+  .btn-green { background: #22c55e; color: white; }
+  .btn-red { background: #ef4444; color: white; }
+  .btn-amber { background: #f59e0b; color: white; }
+  .btn-gray { background: #64748b; color: white; }
+  .btn-outline { background: white; color: #475569; border: 1px solid #cbd5e1; }
+  .stats { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 24px; background: white; border-bottom: 1px solid #e2e8f0; }
+  .stat { background: #f1f5f9; border-radius: 8px; padding: 8px 14px; font-size: 13px; }
+  .stat strong { display: block; font-size: 1.4rem; font-weight: 700; line-height: 1; }
+  .stat.green strong { color: #16a34a; }
+  .stat.amber strong { color: #d97706; }
+  .stat.red strong { color: #dc2626; }
+  .stat.blue strong { color: #2563eb; }
+  .progress-bar { padding: 8px 24px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; font-size: 13px; color: #1d4ed8; display: none; }
+  .table-wrap { overflow-x: auto; padding: 0 24px 32px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
+  th { background: #f1f5f9; text-align: left; padding: 10px 12px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
+  td { padding: 9px 12px; border-bottom: 1px solid #f1f5f9; vertical-align: top; max-width: 260px; }
+  tr:hover td { background: #f8fafc; }
+  .badge { display: inline-block; border-radius: 4px; padding: 2px 7px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; white-space: nowrap; }
+  .badge-green { background: #dcfce7; color: #166534; }
+  .badge-amber { background: #fef9c3; color: #854d0e; }
+  .badge-red { background: #fee2e2; color: #991b1b; }
+  .badge-gray { background: #f1f5f9; color: #475569; }
+  .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-scanning { background: #dbeafe; color: #1e40af; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  .quote { font-size: 11px; color: #64748b; font-style: italic; max-width: 220px; line-height: 1.4; }
+  .add-school { display: flex; gap: 6px; align-items: center; }
+  a { color: #3b82f6; text-decoration: none; font-size: 11px; }
+  a:hover { text-decoration: underline; }
+  .school-name { font-weight: 600; }
+  .error-msg { font-size: 11px; color: #dc2626; max-width: 160px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>SHIP IVF Coverage Research</h1>
+  <span id="last-updated" style="font-size:12px;opacity:.7;margin-left:auto"></span>
+</header>
+
+<div class="controls">
+  <input type="text" id="search" placeholder="Search school..." oninput="render()">
+  <select id="filter-ivf" onchange="render()">
+    <option value="">All IVF statuses</option>
+    <option value="yes">Yes</option>
+    <option value="partial">Partial</option>
+    <option value="no">No</option>
+    <option value="unknown">Unknown</option>
+  </select>
+  <select id="filter-online" onchange="render()">
+    <option value="">All online eligibility</option>
+    <option value="yes">Online eligible: Yes</option>
+    <option value="no">Online eligible: No</option>
+    <option value="unknown">Online eligible: Unknown</option>
+  </select>
+  <select id="filter-status" onchange="render()">
+    <option value="">All statuses</option>
+    <option value="pending">Pending</option>
+    <option value="scanning">Scanning</option>
+    <option value="done">Done</option>
+    <option value="error">Error</option>
+  </select>
+  <button class="btn-primary" id="btn-next" onclick="researchNext()">Research next</button>
+  <button class="btn-green" id="btn-run" onclick="runAll()">Run all</button>
+  <button class="btn-red" id="btn-stop" onclick="stopAll()" style="display:none">Stop</button>
+  <button class="btn-amber" onclick="retryErrors()">Retry errors</button>
+  <button class="btn-gray" onclick="exportCSV()">Export CSV</button>
+  <div class="add-school">
+    <input type="text" id="new-school" placeholder="Add school..." style="width:150px">
+    <button class="btn-outline" onclick="addSchool()">Add</button>
+  </div>
+</div>
+
+<div class="stats" id="stats"></div>
+<div class="progress-bar" id="progress"></div>
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>School</th>
+        <th>State</th>
+        <th>Plan Year</th>
+        <th>Status</th>
+        <th>IVF Covered</th>
+        <th>Cycles</th>
+        <th>IVF Language</th>
+        <th>Min Credits</th>
+        <th>Credit Language</th>
+        <th>Online Eligible</th>
+        <th>Source</th>
+      </tr>
+    </thead>
+    <tbody id="tbody"></tbody>
+  </table>
+</div>
+
+<script>
+let data = [];
+let running = false;
+let stopRequested = false;
+
+async function fetchData() {
+  const r = await fetch('/api/data');
+  data = await r.json();
+  render();
+  document.getElementById('last-updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+function ivfBadge(v) {
+  if (v === 'yes') return '<span class="badge badge-green">Yes</span>';
+  if (v === 'partial') return '<span class="badge badge-amber">Partial</span>';
+  if (v === 'no') return '<span class="badge badge-red">No</span>';
+  return '<span class="badge badge-gray">Unknown</span>';
+}
+
+function onlineBadge(v) {
+  if (v === 'yes') return '<span class="badge badge-green">Yes</span>';
+  if (v === 'no') return '<span class="badge badge-red">No</span>';
+  return '<span class="badge badge-gray">Unknown</span>';
+}
+
+function statusBadge(s) {
+  if (s === 'done') return '';
+  if (s === 'scanning') return '<span class="badge badge-scanning">Scanning...</span>';
+  if (s === 'error') return '<span class="badge badge-red">Error</span>';
+  return '<span class="badge badge-gray">Pending</span>';
+}
+
+function render() {
+  const search = document.getElementById('search').value.toLowerCase();
+  const fivf = document.getElementById('filter-ivf').value;
+  const fonline = document.getElementById('filter-online').value;
+  const fstatus = document.getElementById('filter-status').value;
+
+  const filtered = data.filter(s => {
+    if (search && !s.school_name.toLowerCase().includes(search)) return false;
+    if (fivf && s.ivf_covered !== fivf) return false;
+    if (fonline && s.online_eligible !== fonline) return false;
+    if (fstatus && s.status !== fstatus) return false;
+    return true;
+  });
+
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = filtered.map((s, i) => `
+    <tr>
+      <td style="color:#94a3b8">${i + 1}</td>
+      <td><span class="school-name">${esc(s.school_name)}</span>${s.status === 'error' ? '<div class="error-msg">' + esc(s.error_message) + '</div>' : ''}</td>
+      <td>${s.state !== 'unknown' ? s.state : ''}</td>
+      <td>${s.policy_year !== 'unknown' ? s.policy_year : ''}</td>
+      <td>${statusBadge(s.status)}</td>
+      <td>${ivfBadge(s.ivf_covered)}</td>
+      <td style="font-size:12px">${esc(s.cycles !== 'unknown' ? s.cycles : '')}</td>
+      <td><span class="quote">${esc(s.ivf_language)}</span></td>
+      <td style="font-size:12px">${esc(s.min_credits !== 'unknown' ? s.min_credits : '')}</td>
+      <td><span class="quote">${esc(s.credit_language)}</span></td>
+      <td>${onlineBadge(s.online_eligible)}</td>
+      <td>${s.source_url ? '<a href="' + esc(s.source_url) + '" target="_blank">View</a>' : ''}</td>
+    </tr>
+  `).join('');
+
+  // Stats
+  const done = data.filter(s => s.status === 'done');
+  document.getElementById('stats').innerHTML = `
+    <div class="stat"><strong>${data.length}</strong>Total</div>
+    <div class="stat blue"><strong>${done.length}</strong>Done</div>
+    <div class="stat"><strong>${data.filter(s => s.status === 'pending').length}</strong>Pending</div>
+    <div class="stat green"><strong>${data.filter(s => s.ivf_covered === 'yes').length}</strong>IVF Covered</div>
+    <div class="stat amber"><strong>${data.filter(s => s.ivf_covered === 'partial').length}</strong>Partial</div>
+    <div class="stat red"><strong>${data.filter(s => s.ivf_covered === 'no').length}</strong>Not Covered</div>
+    <div class="stat red"><strong>${data.filter(s => s.status === 'error').length}</strong>Errors</div>
+  `;
+}
+
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function researchOne(schoolName) {
+  // Optimistically mark scanning in local state
+  const entry = data.find(s => s.school_name === schoolName);
+  if (entry) entry.status = 'scanning';
+  render();
+
+  const r = await fetch('/api/research?school=' + encodeURIComponent(schoolName));
+  const result = await r.json();
+  const idx = data.findIndex(s => s.school_name === schoolName);
+  if (idx !== -1) data[idx] = result.entry || result;
+  render();
+  return r.ok;
+}
+
+async function researchNext() {
+  const pending = data.filter(s => s.status === 'pending');
+  if (!pending.length) { alert('No pending schools.'); return; }
+  document.getElementById('btn-next').disabled = true;
+  await researchOne(pending[0].school_name);
+  document.getElementById('btn-next').disabled = false;
+}
+
+async function runAll() {
+  if (running) return;
+  running = true;
+  stopRequested = false;
+  document.getElementById('btn-run').style.display = 'none';
+  document.getElementById('btn-stop').style.display = '';
+  document.getElementById('btn-next').disabled = true;
+  const prog = document.getElementById('progress');
+  prog.style.display = 'block';
+
+  const pending = data.filter(s => s.status === 'pending');
+  const total = pending.length;
+
+  for (let i = 0; i < pending.length; i++) {
+    if (stopRequested) break;
+    const school = pending[i].school_name;
+    prog.textContent = `Researching ${school} (${i + 1} / ${total})...`;
+    await researchOne(school);
+    if (i < pending.length - 1 && !stopRequested) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  running = false;
+  document.getElementById('btn-run').style.display = '';
+  document.getElementById('btn-stop').style.display = 'none';
+  document.getElementById('btn-next').disabled = false;
+  prog.style.display = 'none';
+}
+
+function stopAll() {
+  stopRequested = true;
+}
+
+async function retryErrors() {
+  await fetch('/api/retry-errors', { method: 'POST' });
+  await fetchData();
+}
+
+async function addSchool() {
+  const name = document.getElementById('new-school').value.trim();
+  if (!name) return;
+  const r = await fetch('/api/add-school', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ name })
+  });
+  if (r.ok) {
+    document.getElementById('new-school').value = '';
+    await fetchData();
+  } else {
+    const err = await r.json();
+    alert(err.error || 'Error adding school');
+  }
+}
+
+function exportCSV() {
+  const done = data.filter(s => s.status === 'done');
+  if (!done.length) { alert('No completed records to export.'); return; }
+  const fields = ['school_name','state','policy_year','ivf_covered','cycles','ivf_language','min_credits','credit_language','online_eligible','source_url'];
+  const rows = [fields.join(',')];
+  for (const s of done) {
+    rows.push(fields.map(f => '"' + String(s[f] || '').replace(/"/g, '""') + '"').join(','));
+  }
+  const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'ship_ivf_coverage.csv';
+  a.click();
+}
+
+fetchData();
+setInterval(fetchData, 5000);
+</script>
+</body>
+</html>
