@@ -19,6 +19,7 @@
   .btn-red { background: #ef4444; color: white; }
   .btn-amber { background: #f59e0b; color: white; }
   .btn-gray { background: #64748b; color: white; }
+  .btn-purple { background: #8b5cf6; color: white; }
   .btn-outline { background: white; color: #475569; border: 1px solid #cbd5e1; }
   .stats { display: flex; flex-wrap: wrap; gap: 10px; padding: 12px 24px; background: white; border-bottom: 1px solid #e2e8f0; }
   .stat { background: #f1f5f9; border-radius: 8px; padding: 8px 14px; font-size: 13px; }
@@ -27,7 +28,9 @@
   .stat.amber strong { color: #d97706; }
   .stat.red strong { color: #dc2626; }
   .stat.blue strong { color: #2563eb; }
-  .progress-bar { padding: 8px 24px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; font-size: 13px; color: #1d4ed8; display: none; }
+  .stat.purple strong { color: #7c3aed; }
+  .progress-bar { padding: 8px 24px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; font-size: 13px; color: #1d4ed8; display: none; align-items: center; gap: 12px; }
+  .paused-banner { padding: 8px 24px; background: #fef9c3; border-bottom: 1px solid #fde047; font-size: 13px; color: #854d0e; display: none; }
   .table-wrap { overflow-x: auto; padding: 0 24px 32px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 16px; }
   th { background: #f1f5f9; text-align: left; padding: 10px 12px; font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: #475569; border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
@@ -39,6 +42,7 @@
   .badge-red { background: #fee2e2; color: #991b1b; }
   .badge-gray { background: #f1f5f9; color: #475569; }
   .badge-blue { background: #dbeafe; color: #1e40af; }
+  .badge-purple { background: #ede9fe; color: #5b21b6; }
   .badge-scanning { background: #dbeafe; color: #1e40af; animation: pulse 1.2s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
   .quote { font-size: 11px; color: #64748b; font-style: italic; max-width: 220px; line-height: 1.4; }
@@ -47,6 +51,8 @@
   a:hover { text-decoration: underline; }
   .school-name { font-weight: 600; }
   .error-msg { font-size: 11px; color: #dc2626; max-width: 160px; }
+  .skip-msg { font-size: 11px; color: #7c3aed; max-width: 160px; font-style: italic; }
+  .sources { display: flex; flex-direction: column; gap: 2px; }
 </style>
 </head>
 <body>
@@ -80,6 +86,8 @@
   </select>
   <button class="btn-primary" id="btn-next" onclick="researchNext()">Research next</button>
   <button class="btn-green" id="btn-run" onclick="runAll()">Run all</button>
+  <button class="btn-amber" id="btn-pause" onclick="pauseAll()" style="display:none">Pause</button>
+  <button class="btn-purple" id="btn-resume" onclick="resumeAll()" style="display:none">Resume</button>
   <button class="btn-red" id="btn-stop" onclick="stopAll()" style="display:none">Stop</button>
   <button class="btn-amber" onclick="retryErrors()">Retry errors</button>
   <button class="btn-gray" onclick="exportCSV()">Export CSV</button>
@@ -91,6 +99,7 @@
 
 <div class="stats" id="stats"></div>
 <div class="progress-bar" id="progress"></div>
+<div class="paused-banner" id="paused-banner">⏸ Paused — click Resume to continue</div>
 
 <div class="table-wrap">
   <table>
@@ -107,7 +116,7 @@
         <th>Min Credits</th>
         <th>Credit Language</th>
         <th>Online Eligible</th>
-        <th>Source</th>
+        <th>Sources</th>
       </tr>
     </thead>
     <tbody id="tbody"></tbody>
@@ -118,6 +127,9 @@
 let data = [];
 let running = false;
 let stopRequested = false;
+let pauseRequested = false;
+let paused = false;
+let resumeResolve = null;
 
 async function fetchData() {
   const r = await fetch('/api/data');
@@ -146,6 +158,12 @@ function statusBadge(s) {
   return '<span class="badge badge-gray">Pending</span>';
 }
 
+function sourcesHtml(entry) {
+  const urls = Array.isArray(entry.source_urls) ? entry.source_urls : (entry.source_url ? [entry.source_url] : []);
+  if (!urls.length) return '';
+  return '<div class="sources">' + urls.map((u, i) => `<a href="${esc(u)}" target="_blank">Source ${i + 1}</a>`).join('') + '</div>';
+}
+
 function render() {
   const search = document.getElementById('search').value.toLowerCase();
   const fivf = document.getElementById('filter-ivf').value;
@@ -164,7 +182,11 @@ function render() {
   tbody.innerHTML = filtered.map((s, i) => `
     <tr>
       <td style="color:#94a3b8">${i + 1}</td>
-      <td><span class="school-name">${esc(s.school_name)}</span>${s.status === 'error' ? '<div class="error-msg">' + esc(s.error_message) + '</div>' : ''}</td>
+      <td>
+        <span class="school-name">${esc(s.school_name)}</span>
+        ${s.status === 'error' ? '<div class="error-msg">' + esc(s.error_message) + '</div>' : ''}
+        ${s.skip_reason ? '<div class="skip-msg">' + esc(s.skip_reason) + '</div>' : ''}
+      </td>
       <td>${s.state !== 'unknown' ? s.state : ''}</td>
       <td>${s.policy_year !== 'unknown' ? s.policy_year : ''}</td>
       <td>${statusBadge(s.status)}</td>
@@ -174,12 +196,13 @@ function render() {
       <td style="font-size:12px">${esc(s.min_credits !== 'unknown' ? s.min_credits : '')}</td>
       <td><span class="quote">${esc(s.credit_language)}</span></td>
       <td>${onlineBadge(s.online_eligible)}</td>
-      <td>${s.source_url ? '<a href="' + esc(s.source_url) + '" target="_blank">View</a>' : ''}</td>
+      <td>${sourcesHtml(s)}</td>
     </tr>
   `).join('');
 
   // Stats
   const done = data.filter(s => s.status === 'done');
+  const skipped = done.filter(s => s.skip_reason);
   document.getElementById('stats').innerHTML = `
     <div class="stat"><strong>${data.length}</strong>Total</div>
     <div class="stat blue"><strong>${done.length}</strong>Done</div>
@@ -187,6 +210,7 @@ function render() {
     <div class="stat green"><strong>${data.filter(s => s.ivf_covered === 'yes').length}</strong>IVF Covered</div>
     <div class="stat amber"><strong>${data.filter(s => s.ivf_covered === 'partial').length}</strong>Partial</div>
     <div class="stat red"><strong>${data.filter(s => s.ivf_covered === 'no').length}</strong>Not Covered</div>
+    ${skipped.length ? `<div class="stat purple"><strong>${skipped.length}</strong>Early Stop</div>` : ''}
     <div class="stat red"><strong>${data.filter(s => s.status === 'error').length}</strong>Errors</div>
   `;
 }
@@ -196,8 +220,23 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+async function waitIfPaused() {
+  if (!pauseRequested) return;
+  paused = true;
+  document.getElementById('paused-banner').style.display = 'block';
+  document.getElementById('progress').style.display = 'none';
+  document.getElementById('btn-pause').style.display = 'none';
+  document.getElementById('btn-resume').style.display = '';
+  await new Promise(resolve => { resumeResolve = resolve; });
+  paused = false;
+  pauseRequested = false;
+  document.getElementById('paused-banner').style.display = 'none';
+  document.getElementById('progress').style.display = 'flex';
+  document.getElementById('btn-pause').style.display = '';
+  document.getElementById('btn-resume').style.display = 'none';
+}
+
 async function researchOne(schoolName) {
-  // Optimistically mark scanning in local state
   const entry = data.find(s => s.school_name === schoolName);
   if (entry) entry.status = 'scanning';
   render();
@@ -222,34 +261,69 @@ async function runAll() {
   if (running) return;
   running = true;
   stopRequested = false;
+  pauseRequested = false;
+  paused = false;
   document.getElementById('btn-run').style.display = 'none';
   document.getElementById('btn-stop').style.display = '';
+  document.getElementById('btn-pause').style.display = '';
+  document.getElementById('btn-resume').style.display = 'none';
   document.getElementById('btn-next').disabled = true;
   const prog = document.getElementById('progress');
-  prog.style.display = 'block';
+  prog.style.display = 'flex';
 
   const pending = data.filter(s => s.status === 'pending');
   const total = pending.length;
 
   for (let i = 0; i < pending.length; i++) {
     if (stopRequested) break;
+    await waitIfPaused();
+    if (stopRequested) break;
+
     const school = pending[i].school_name;
     prog.textContent = `Researching ${school} (${i + 1} / ${total})...`;
     await researchOne(school);
+
     if (i < pending.length - 1 && !stopRequested) {
-      await new Promise(r => setTimeout(r, 10000));
+      // 10-second delay between schools to avoid rate limits
+      for (let t = 10; t > 0; t--) {
+        if (stopRequested) break;
+        await waitIfPaused();
+        if (stopRequested) break;
+        prog.textContent = `Waiting ${t}s before next school... (${i + 1} / ${total} done)`;
+        await new Promise(r => setTimeout(r, 1000));
+      }
     }
   }
 
   running = false;
+  paused = false;
+  pauseRequested = false;
   document.getElementById('btn-run').style.display = '';
   document.getElementById('btn-stop').style.display = 'none';
+  document.getElementById('btn-pause').style.display = 'none';
+  document.getElementById('btn-resume').style.display = 'none';
   document.getElementById('btn-next').disabled = false;
   prog.style.display = 'none';
+  document.getElementById('paused-banner').style.display = 'none';
+}
+
+function pauseAll() {
+  if (!running || paused) return;
+  pauseRequested = true;
+  document.getElementById('btn-pause').disabled = true;
+  document.getElementById('btn-pause').textContent = 'Pausing...';
+}
+
+function resumeAll() {
+  if (!paused) return;
+  document.getElementById('btn-pause').disabled = false;
+  document.getElementById('btn-pause').textContent = 'Pause';
+  if (resumeResolve) { resumeResolve(); resumeResolve = null; }
 }
 
 function stopAll() {
   stopRequested = true;
+  if (paused && resumeResolve) { resumeResolve(); resumeResolve = null; }
 }
 
 async function retryErrors() {
@@ -277,10 +351,13 @@ async function addSchool() {
 function exportCSV() {
   const done = data.filter(s => s.status === 'done');
   if (!done.length) { alert('No completed records to export.'); return; }
-  const fields = ['school_name','state','policy_year','ivf_covered','cycles','ivf_language','min_credits','credit_language','online_eligible','source_url'];
+  const fields = ['school_name','state','policy_year','ivf_covered','cycles','ivf_language','min_credits','credit_language','online_eligible','source_urls','skip_reason'];
   const rows = [fields.join(',')];
   for (const s of done) {
-    rows.push(fields.map(f => '"' + String(s[f] || '').replace(/"/g, '""') + '"').join(','));
+    rows.push(fields.map(f => {
+      const v = f === 'source_urls' ? (Array.isArray(s[f]) ? s[f].join(' | ') : (s.source_url || '')) : (s[f] || '');
+      return '"' + String(v).replace(/"/g, '""') + '"';
+    }).join(','));
   }
   const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
   const a = document.createElement('a');

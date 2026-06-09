@@ -10,6 +10,12 @@ const DATA_FILE = path.join(__dirname, 'data', 'results.json');
 app.use(express.json());
 app.use(express.static('public'));
 
+// Schools within 20 miles of Chalfont, PA 18914 — always fully research these
+// even if online students are ineligible
+const SCHOOLS_NEAR_CHALFONT = new Set([
+  'villanova', 'bryn mawr'
+]);
+
 const SCHOOLS = [
   "MIT", "Yale", "Harvard", "Stanford", "Columbia", "NYU", "Penn State", "Purdue",
   "Michigan State", "University of Michigan", "UCLA", "UC San Diego", "UC Davis",
@@ -55,6 +61,14 @@ const SCHOOLS = [
   "Oneonta", "Oswego", "Plattsburgh", "Purchase", "Potsdam", "Brockport", "Farmingdale"
 ];
 
+function isNearChalfont(schoolName) {
+  const lower = schoolName.toLowerCase();
+  for (const s of SCHOOLS_NEAR_CHALFONT) {
+    if (lower.includes(s)) return true;
+  }
+  return false;
+}
+
 function loadData() {
   if (!fs.existsSync(DATA_FILE)) {
     const initial = SCHOOLS.map(name => ({
@@ -67,9 +81,10 @@ function loadData() {
       min_credits: "unknown",
       credit_language: "",
       online_eligible: "unknown",
+      source_urls: [],
       status: "pending",
       error_message: "",
-      source_url: ""
+      skip_reason: ""
     }));
     saveData(initial);
     return initial;
@@ -105,9 +120,10 @@ app.post('/api/add-school', (req, res) => {
     min_credits: "unknown",
     credit_language: "",
     online_eligible: "unknown",
+    source_urls: [],
     status: "pending",
     error_message: "",
-    source_url: ""
+    skip_reason: ""
   };
   data.push(entry);
   saveData(data);
@@ -120,6 +136,7 @@ app.post('/api/retry-errors', (req, res) => {
     if (s.status === 'error') {
       s.status = 'pending';
       s.error_message = '';
+      s.skip_reason = '';
     }
   });
   saveData(data);
@@ -138,40 +155,66 @@ app.get('/api/research', async (req, res) => {
   if (!entry) return res.status(404).json({ error: 'School not found' });
 
   entry.status = 'scanning';
+  entry.skip_reason = '';
+  if (!Array.isArray(entry.source_urls)) entry.source_urls = [];
   saveData(data);
+
+  const nearChalfont = isNearChalfont(school);
 
   const prompt = `Research the Student Health Insurance Plan (SHIP) for ${school} for the most current plan year (2025-2026 or 2024-2025).
 
-Use web search to find the actual SHIP plan document or benefits summary. Look for the official university health insurance plan documents.
+STEP 1 — Find the plan document:
+Search for "${school} student health insurance plan 2025 2026 benefits" and look for the official university SHIP benefits summary or plan document (PDF or webpage). Try to find the actual plan document, not just a landing page.
 
-Extract these specific fields and return ONLY a valid JSON object (no markdown, no extra text):
+STEP 2 — Search for "fertility" in the plan:
+Once you find the document, search specifically for the word "fertility" to locate relevant coverage language. Also look for: IVF, in vitro, oocyte retrieval, ovulation stimulation, IUI, artificial insemination, infertility.
+
+STEP 3 — Apply these early-stop rules before doing more research:
+
+EARLY STOP RULE A (IVF not covered):
+If you find language that explicitly states ANY of the following are NOT covered or are excluded:
+  - IUI (intrauterine insemination) or artificial insemination
+  - Oocyte retrieval
+  - Ovulation stimulation / ovulation induction (as a blanket exclusion)
+  - Infertility treatment (as a blanket exclusion)
+  - IVF (in vitro fertilization)
+Then set ivf_covered = "no" and you can stop — IVF will not be covered if these broader fertility treatments are excluded.
+
+EARLY STOP RULE B (online eligibility — only applies if school is NOT near Chalfont PA):
+${nearChalfont
+  ? `NOTE: ${school} is near Chalfont, PA — do NOT apply early stop rule B. Always fully research this school.`
+  : `If you find that online-only or distance-learning students are explicitly NOT eligible for the SHIP, set online_eligible = "no" and stop further research — we only care about this school if online students can enroll.`
+}
+
+STEP 4 — Extract all fields and return ONLY a valid JSON object (no markdown, no extra text):
 
 {
   "state": "2-letter state code where the university is located",
   "policy_year": "plan year like 2025-2026",
   "ivf_covered": "yes, no, partial, or unknown",
   "cycles": "number of IVF cycles/oocyte retrievals covered, e.g. '3 oocyte retrievals per lifetime', 'unlimited', 'none', or 'unknown'",
-  "ivf_language": "exact verbatim quote from plan document about IVF coverage, max 300 chars, empty string if not found",
+  "ivf_language": "exact verbatim quote from plan document about IVF or fertility coverage, max 300 chars, empty string if not found",
   "min_credits": "minimum credit hours required for eligibility, e.g. '6', '9', 'full-time only', or 'unknown'",
   "credit_language": "exact verbatim quote about enrollment/credit requirements, max 300 chars, empty string if not found",
   "online_eligible": "yes if online/distance students are explicitly eligible, no if explicitly excluded, unknown otherwise",
-  "source_url": "the URL of the plan document or benefits page you found"
+  "source_urls": ["array", "of", "all", "URLs", "you", "consulted"],
+  "skip_reason": "if you stopped early under Rule A or B, briefly explain why, otherwise empty string"
 }
 
 For ivf_covered:
 - "yes" = IVF is explicitly covered
 - "partial" = some fertility treatments covered but IVF has limits or exclusions mentioned
-- "no" = IVF is explicitly excluded
+- "no" = IVF is explicitly excluded OR broader fertility treatments are excluded (Rule A)
 - "unknown" = couldn't find clear information
 
-Be precise with verbatim quotes. Return only the JSON object.`;
+Return only the JSON object.`;
 
   try {
     const response = await axios.post(
       'https://api.anthropic.com/v1/messages',
       {
         model: 'claude-sonnet-4-6',
-        max_tokens: 1500,
+        max_tokens: 2000,
         tools: [{ type: 'web_search_20250305', name: 'web_search' }],
         messages: [{ role: 'user', content: prompt }]
       },
@@ -179,7 +222,6 @@ Be precise with verbatim quotes. Return only the JSON object.`;
         headers: {
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
-          'anthropic-beta': 'interleaved-thinking-2025-05-14',
           'content-type': 'application/json'
         },
         timeout: 120000
@@ -204,7 +246,8 @@ Be precise with verbatim quotes. Return only the JSON object.`;
     entry.min_credits = result.min_credits || 'unknown';
     entry.credit_language = (result.credit_language || '').substring(0, 300);
     entry.online_eligible = result.online_eligible || 'unknown';
-    entry.source_url = result.source_url || '';
+    entry.source_urls = Array.isArray(result.source_urls) ? result.source_urls.slice(0, 10) : (result.source_url ? [result.source_url] : []);
+    entry.skip_reason = result.skip_reason || '';
     entry.status = 'done';
     entry.error_message = '';
 
